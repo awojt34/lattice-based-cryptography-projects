@@ -1,0 +1,159 @@
+import random
+import time
+import statistics
+
+def gen_poly(N, d1, d2, R):
+    coeffs = [1]*d1 + [-1]*d2 + [0]*(N - d1 - d2)
+    random.shuffle(coeffs)
+    poly = R(coeffs)
+    return poly
+
+def gen_key(N, p, q, d, Rn, Rp, Rq):
+    while True:
+        try:
+            f = gen_poly(N, d + 1, d, Rn)
+            g = gen_poly(N, d, d, Rn)
+            fp = Rp(f.list())
+            fq = Rq(f.list())
+            Fp = fp.inverse()
+            Fq = fq.inverse()
+            h = p * Fq * Rq(g.list())
+            return [fq, Fp], h
+        except (ValueError):
+            continue
+
+def encode(m, p, N):
+    coeffs = Integer(m).digits(p)
+    while len(coeffs) < N:
+        coeffs.append(0)
+    coeffs = coeffs[:N]
+    limit = p // 2
+    Lm = [c if c <= limit else c - p for c in coeffs]
+    return Lm
+
+def decode(m_encoded, p):
+    liczba = 0
+    for c in reversed(m_encoded):
+        liczba = liczba * p + (c % p)
+    return liczba
+
+def encryption(N, m, pub_key, q, d, Rn, Rq):
+    ephemeral = gen_poly(N, d, d, Rn)
+    m_poly = Rq(m)
+    ephemeral = Rq(ephemeral.list())
+    ciphertext = ephemeral * pub_key + m_poly
+    return ciphertext
+
+def decryption(ciphertext, priv_key, p, q, N, Rp):
+    fq, Fp = priv_key
+    a = fq * ciphertext
+    a_lifted = [int(c) - q if int(c) > q//2 else int(c) for c in a.list()]
+    while len(a_lifted) < N:
+        a_lifted.append(0)
+    a_p = Rp(a_lifted)
+    m_recovered = Fp * a_p
+    m_list = m_recovered.list()
+    while len(m_list) < N:
+        m_list.append(0)
+    m_centered = [int(c) - p if int(c) > p//2 else int(c) for c in m_list[:N]]
+    return m_centered
+
+def test_iteracja(N, p, q, d, Rn, Rp, Rq, i):
+    m = random.randint(0, p**N - 1)
+    m_encoded = encode(m, p, N)
+
+    # Generacja kluczy
+    start_time = time.time()
+    priv_key, pub_key = gen_key(N, p, q, d, Rn, Rp, Rq)
+    gen_time = (time.time() - start_time) * 1000
+
+    # Szyfrowanie
+    start_time = time.time()
+    cipher = encryption(N, m_encoded, pub_key, q, d, Rn, Rq)
+    enc_time = (time.time() - start_time) * 1000
+
+    # Deszyfrowanie
+    start_time = time.time()
+    decrypted = decryption(cipher, priv_key, p, q, N, Rp)
+    dec_time = (time.time() - start_time) * 1000
+
+    m_recovered = decode(decrypted, p)
+    success = (m == m_recovered)
+    status = 'sukces' if success else 'blad'
+    print(" Test{}: Gen={:.2f}ms, Enc={:.2f}ms, Dec={:.2f}ms, {}".format(
+        i+1, gen_time, enc_time, dec_time, status))
+    return gen_time, enc_time, dec_time, success
+
+def testy():
+    param = [
+        {'N': 503,  'p': 3, 'q': 3011, 'd': 167, 'iterations': 25, 'id': 'Zestaw 1'},
+        {'N': 719,  'p': 3, 'q': 4327, 'd': 239, 'iterations': 15, 'id': 'Zestaw 2'},
+        {'N': 1009, 'p': 3, 'q': 6053, 'd': 336, 'iterations': 10, 'id': 'Zestaw 3'}
+    ]
+
+    all_results = []
+
+    for params in param:
+        N = params['N']
+        p = params['p']
+        q = params['q']
+        d = params['d']
+
+        Z = ZZ['x']
+        modulus = x^N - 1
+        Rn = Z.quotient(modulus)
+        Rp = Z.change_ring(GF(p)).quotient(modulus)
+        Rq = Z.change_ring(GF(q)).quotient(modulus)
+
+        print("\n{}: N={}, p={}, q={}, d={}".format(params['id'], N, p, q, d))
+
+        results = {
+            'gen_times': [],
+            'enc_times': [],
+            'dec_times': [],
+            'successes': 0
+        }
+
+        for i in range(params['iterations']):
+            gen_time, enc_time, dec_time, success = test_iteracja(N, p, q, d, Rn, Rp, Rq, i)
+            results['gen_times'].append(gen_time)
+            results['enc_times'].append(enc_time)
+            results['dec_times'].append(dec_time)
+            if success:
+                results['successes'] += 1
+
+        gen_mean = statistics.mean(results['gen_times'])
+        gen_std  = statistics.stdev(results['gen_times'])
+        enc_mean = statistics.mean(results['enc_times'])
+        enc_std  = statistics.stdev(results['enc_times'])
+        dec_mean = statistics.mean(results['dec_times'])
+        dec_std  = statistics.stdev(results['dec_times'])
+        total_mean = gen_mean + enc_mean + dec_mean
+
+        print("\nPodsumowanie {}".format(params['id']))
+        print("Liczba testow: {}".format(params['iterations']))
+        print("Poprawne: {}".format(results['successes']))
+        print("Generacja kluczy: {:.2f} std: {:.2f} ms".format(gen_mean, gen_std))
+        print("Szyfrowanie:      {:.2f} std: {:.2f} ms".format(enc_mean, enc_std))
+        print("Deszyfrowanie:    {:.2f} std: {:.2f} ms".format(dec_mean, dec_std))
+        print("Calkowity czas:   {:.2f} ms".format(total_mean))
+
+        all_results.append({
+            'params':   params,
+            'gen_mean': gen_mean,
+            'gen_std':  gen_std,
+            'enc_mean': enc_mean,
+            'enc_std':  enc_std,
+            'dec_mean': dec_mean,
+            'dec_std':  dec_std,
+        })
+
+    print("\n\nPodsumowanie wszystkich testow")
+    for result in all_results:
+        print("{}".format(result['params']['id']))
+        print("Generacja:    {:.2f} std {:.2f} ms".format(result['gen_mean'], result['gen_std']))
+        print("Szyfrowanie:  {:.2f} std {:.2f} ms".format(result['enc_mean'], result['enc_std']))
+        print("Deszyfrowanie:{:.2f} std {:.2f} ms".format(result['dec_mean'], result['dec_std']))
+        print("")
+
+testy()
