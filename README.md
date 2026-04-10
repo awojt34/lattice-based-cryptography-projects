@@ -1,2 +1,2 @@
 # lattice-based-cryptogrpahy-projects
-Projects written in SageMath as part of learning foundation of lattice based cryptography.
+Projects written in SageMath and reports with theoretical background as part of learning foundation of lattice based cryptography.
